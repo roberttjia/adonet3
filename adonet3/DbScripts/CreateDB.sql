@@ -36,6 +36,7 @@ CREATE TABLE [dbo].[Orders](
 	[TotalAmount] [decimal](10, 2) NOT NULL,
 	[OrderDate] [datetime2](7) NULL,
 	[Status] [nvarchar](20) NULL,
+	[ExternalOrderId] [nvarchar](50) NULL,
 PRIMARY KEY CLUSTERED 
 (
 	[OrderID] ASC
@@ -82,6 +83,13 @@ ALTER TABLE [dbo].[Orders]  WITH CHECK ADD  CONSTRAINT [FK_Orders_Products] FORE
 REFERENCES [dbo].[Products] ([ProductID])
 GO
 ALTER TABLE [dbo].[Orders] CHECK CONSTRAINT [FK_Orders_Products]
+GO
+CREATE UNIQUE NONCLUSTERED INDEX [IX_Orders_ExternalOrderId] ON [dbo].[Orders]
+(
+	[ExternalOrderId] ASC
+)
+WHERE ([ExternalOrderId] IS NOT NULL)
+WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, SORT_IN_TEMPDB = OFF, IGNORE_DUP_KEY = OFF, DROP_EXISTING = OFF, ONLINE = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
 GO
 /****** Object:  StoredProcedure [dbo].[proc_AddCustomer]    Script Date: 9/8/2025 2:30:09 PM ******/
 SET ANSI_NULLS ON
@@ -282,6 +290,98 @@ BEGIN
         StockQuantity = @StockQuantity,
         Category = @Category
     WHERE ProductID = @ProductID;
+    
+    RETURN @@ROWCOUNT;
+END
+GO
+/****** Object:  StoredProcedure [dbo].[proc_AddOrder]    Script Date: 9/8/2025 2:30:09 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE PROCEDURE [dbo].[proc_AddOrder]
+    @CustomerID INT,
+    @ProductID INT,
+    @Quantity INT,
+    @UnitPrice DECIMAL(10,2),
+    @TotalAmount DECIMAL(10,2),
+    @Status NVARCHAR(20) = NULL,
+    @ExternalOrderId NVARCHAR(50) = NULL,
+    @OrderID INT OUTPUT
+AS
+BEGIN
+    IF @ExternalOrderId IS NOT NULL AND EXISTS (SELECT 1 FROM Orders WHERE ExternalOrderId = @ExternalOrderId)
+    BEGIN
+        SET @OrderID = -9;
+        RETURN;
+    END
+    
+    INSERT INTO Orders (CustomerID, ProductID, Quantity, UnitPrice, TotalAmount, Status, ExternalOrderId)
+    VALUES (@CustomerID, @ProductID, @Quantity, @UnitPrice, @TotalAmount, @Status, @ExternalOrderId);
+    
+    SET @OrderID = SCOPE_IDENTITY();
+END
+GO
+/****** Object:  StoredProcedure [dbo].[proc_ArchiveCompletedOrders]    Script Date: 9/8/2025 2:30:09 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE PROCEDURE [dbo].[proc_ArchiveCompletedOrders]
+    @ErrorCode INT OUTPUT
+AS
+BEGIN
+    DECLARE @OrderIds TABLE (OrderID INT);
+    
+    BEGIN TRANSACTION;
+    
+    BEGIN TRY
+        INSERT INTO @OrderIds (OrderID)
+        SELECT OrderID 
+        FROM Orders WITH (UPDLOCK)
+        WHERE Status = 'COMPLETED';
+        
+        UPDATE o
+        SET Status = 'ARCHIVED'
+        FROM Orders o
+        INNER JOIN @OrderIds oi ON o.OrderID = oi.OrderID;
+        
+        COMMIT TRANSACTION;
+        
+        SET @ErrorCode = 0;
+        SELECT OrderID FROM @OrderIds;
+    END TRY
+    BEGIN CATCH
+        ROLLBACK TRANSACTION;
+        SET @ErrorCode = -1;
+    END CATCH
+END
+GO
+/****** Object:  StoredProcedure [dbo].[proc_UpdateOrder]    Script Date: 9/8/2025 2:30:09 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE PROCEDURE [dbo].[proc_UpdateOrder]
+    @OrderID INT,
+    @CustomerID INT,
+    @ProductID INT,
+    @Quantity INT,
+    @UnitPrice DECIMAL(10,2),
+    @TotalAmount DECIMAL(10,2),
+    @Status NVARCHAR(20) = NULL,
+    @ExternalOrderId NVARCHAR(50) = NULL
+AS
+BEGIN
+    UPDATE Orders
+    SET CustomerID = @CustomerID,
+        ProductID = @ProductID,
+        Quantity = @Quantity,
+        UnitPrice = @UnitPrice,
+        TotalAmount = @TotalAmount,
+        Status = @Status,
+        ExternalOrderId = @ExternalOrderId
+    WHERE OrderID = @OrderID;
     
     RETURN @@ROWCOUNT;
 END
