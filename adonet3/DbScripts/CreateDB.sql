@@ -386,3 +386,63 @@ BEGIN
     RETURN @@ROWCOUNT;
 END
 GO
+/****** Object:  StoredProcedure [dbo].[proc_ArchiveCompletedOrdersCursor]    Script Date: 9/8/2025 2:30:09 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE PROCEDURE [dbo].[proc_ArchiveCompletedOrdersCursor]
+AS
+BEGIN
+    DECLARE @Results TABLE (OrderId INT, Archived BIT);
+    DECLARE @OrderId INT;
+    DECLARE @Status NVARCHAR(20);
+    DECLARE @Archived BIT;
+    
+    -- This is a common optimization pattern in SQL Server. A dirty-read cursor to find candidate
+    -- rows to archive. Then in the cursor loop, we use an UPDLOCK to lock the row and
+    -- check the status again. If it's still COMPLETED, we archive it. This is done one transaction
+    -- at a time. This means that we use a mininal number of concurrent ROWLOCKs (1)
+    DECLARE order_cursor CURSOR FOR
+    SELECT OrderID FROM Orders WITH (NOLOCK) WHERE Status = 'COMPLETED';
+    
+    OPEN order_cursor;
+    FETCH NEXT FROM order_cursor INTO @OrderId;
+    
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        BEGIN TRANSACTION;
+        BEGIN TRY
+            -- Select with UPDLOCK to reserve the row
+            SELECT @Status = Status FROM Orders WITH (UPDLOCK)
+            WHERE OrderID = @OrderId;
+            
+            -- Business logic: only archive if still COMPLETED
+            IF @Status = 'COMPLETED'
+            BEGIN
+                UPDATE Orders 
+                SET Status = 'ARCHIVED' 
+                WHERE OrderID = @OrderId;
+                
+                SET @Archived = 1;
+            END
+            ELSE
+            BEGIN
+                SET @Archived = 0;
+            END
+            
+            COMMIT TRANSACTION;        END TRY
+        BEGIN CATCH
+            SET @Archived = 0;
+            ROLLBACK TRANSACTION;        END CATCH
+        
+        INSERT INTO @Results (OrderId, Archived) VALUES (@OrderId, @Archived);
+        FETCH NEXT FROM order_cursor INTO @OrderId;
+    END
+    
+    CLOSE order_cursor;
+    DEALLOCATE order_cursor;
+    
+    SELECT OrderId, Archived FROM @Results;
+END
+GO

@@ -167,5 +167,57 @@ namespace adonet3Test
             
             Assert.Equal(0, rowsAffected);
         }
+
+        [Fact]
+        public void ArchiveCompletedOrdersCursor_Success()
+        {
+            var dataAccess = new OrderDataAccess();
+            
+            // Add orders with COMPLETED status
+            var completedOrder1 = new Order
+            {
+                CustomerID = 1,
+                ProductID = 1,
+                Quantity = 1,
+                UnitPrice = 25.00m,
+                TotalAmount = 25.00m,
+                Status = "COMPLETED",
+                ExternalOrderId = "CURSOR-" + Guid.NewGuid().ToString()
+            };
+
+            var completedOrder2 = new Order
+            {
+                CustomerID = 2,
+                ProductID = 2,
+                Quantity = 3,
+                UnitPrice = 15.00m,
+                TotalAmount = 45.00m,
+                Status = "COMPLETED",
+                ExternalOrderId = "CURSOR-" + Guid.NewGuid().ToString()
+            };
+
+            int orderId1 = dataAccess.AddOrder(completedOrder1);
+            int orderId2 = dataAccess.AddOrder(completedOrder2);
+            
+            var results = dataAccess.ArchiveCompletedOrdersCursor();
+            
+            var result1 = results.Find(r => r.OrderId == orderId1);
+            var result2 = results.Find(r => r.OrderId == orderId2);
+            
+            Assert.NotNull(result1);
+            Assert.NotNull(result2);
+            Assert.True(result1.Archived);
+            Assert.True(result2.Archived);
+        }
+
+        [Fact]
+        public void ArchiveCompletedOrdersCursor_NoCompletedOrders_ReturnsEmptyList()
+        {
+            var dataAccess = new OrderDataAccess();
+            
+            var results = dataAccess.ArchiveCompletedOrdersCursor();
+            
+            Assert.NotNull(results);
+        }
     }
 }

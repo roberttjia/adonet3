@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Data;
 using Microsoft.Data.SqlClient;
 using adonet3.Models;
 using adonet3.Utils;
@@ -94,6 +95,34 @@ namespace adonet3.DataAccess
                     command.Parameters.AddWithValue("@ExternalOrderId", (object)order.ExternalOrderId ?? DBNull.Value);
                     
                     return command.ExecuteNonQuery();
+                }
+            }
+        }
+
+        public List<ArchivedOrder> ArchiveCompletedOrdersCursor()
+        {
+            using (var connection = new SqlConnection(_connectionString))
+            {
+                connection.Open();
+                using (var command = new SqlCommand("proc_ArchiveCompletedOrdersCursor", connection))
+                {
+                    command.CommandType = CommandType.StoredProcedure;
+                    
+                    var adapter = new SqlDataAdapter(command);
+                    var dataTable = new DataTable();
+                    adapter.Fill(dataTable);
+                    
+                    var results = new List<ArchivedOrder>();
+                    foreach (DataRow row in dataTable.Rows)
+                    {
+                        results.Add(new ArchivedOrder
+                        {
+                            OrderId = (int)row["OrderId"],
+                            Archived = (bool)row["Archived"]
+                        });
+                    }
+                    
+                    return results;
                 }
             }
         }
