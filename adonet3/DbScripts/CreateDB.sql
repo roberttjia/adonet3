@@ -431,10 +431,12 @@ BEGIN
                 SET @Archived = 0;
             END
             
-            COMMIT TRANSACTION;        END TRY
+            COMMIT TRANSACTION;
+        END TRY
         BEGIN CATCH
             SET @Archived = 0;
-            ROLLBACK TRANSACTION;        END CATCH
+            ROLLBACK TRANSACTION;
+        END CATCH
         
         INSERT INTO @Results (OrderId, Archived) VALUES (@OrderId, @Archived);
         FETCH NEXT FROM order_cursor INTO @OrderId;
